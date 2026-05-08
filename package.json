@@ -1,0 +1,15 @@
+{
+  "name": "p2p-asset-engine",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Peer-to-peer asset delivery engine for games and applications.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.2.11",
+    "dexie": "^4.0.7"
+  }
+}
