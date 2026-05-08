@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Manifest Schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "The version of the manifest format"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp when the manifest was generated"
+    },
+    "assets": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "type": "object",
+          "properties": {
+            "cid": {
+              "type": "string",
+              "pattern": "^[a-fA-F0-9]{64}$",
+              "description": "SHA-256 hash of the file content (hex string)"
+            },
+            "size": {
+              "type": "number",
+              "description": "Size of the file in bytes"
+            },
+            "level": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3,
+              "description": "Priority or importance level (1-3)"
+            }
+          },
+          "required": ["cid", "size", "level"]
+        }
+      },
+      "description": "Mapping of relative file paths to asset metadata"
+    }
+  },
+  "required": ["version", "generatedAt", "assets"]
+}
