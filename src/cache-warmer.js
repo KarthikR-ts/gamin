@@ -29,16 +29,37 @@ export async function startCacheWarming(p2pClient, manifest, currentLevel, onPro
 
   let totalDone = 0;
   const totalNeeded = assetsToWarm.length;
+  const donePerLevel = {};
+  const totalPerLevel = {};
+
+  // Initialize total counts per level
+  assetsToWarm.forEach(a => {
+    totalPerLevel[a.level] = (totalPerLevel[a.level] || 0) + 1;
+    if (!donePerLevel[a.level]) donePerLevel[a.level] = 0;
+  });
+
   let isStopped = false;
 
   /**
-   * Returns current warming progress.
+   * Returns current warming progress, including level-specific stats.
    */
   const getProgress = () => {
     const done = totalDone;
     const total = totalNeeded;
     const percentComplete = total > 0 ? Math.round((done / total) * 100) : 100;
-    return { done, total, percentComplete };
+    
+    const levelStats = {};
+    Object.keys(totalPerLevel).forEach(lvl => {
+      const d = donePerLevel[lvl] || 0;
+      const t = totalPerLevel[lvl];
+      levelStats[lvl] = {
+        done: d,
+        total: t,
+        percent: t > 0 ? Math.round((d / t) * 100) : 100
+      };
+    });
+
+    return { done, total, percentComplete, levels: levelStats };
   };
 
   /**
@@ -66,6 +87,7 @@ export async function startCacheWarming(p2pClient, manifest, currentLevel, onPro
         // Check if already in IndexedDB to avoid redundant P2P requests
         if (await hasAsset(cid)) {
           totalDone++;
+          donePerLevel[level]++;
           if (onProgress) {
             onProgress({ cid, path, level, totalDone, totalNeeded });
           }
@@ -73,7 +95,6 @@ export async function startCacheWarming(p2pClient, manifest, currentLevel, onPro
         }
 
         // 1. Calls shouldThrottle(dataChannel) from src/p2p/ratelimit.js
-        // We attempt to use p2pClient.dataChannel if available for write-buffer checks
         while (shouldThrottle(p2pClient.dataChannel)) {
           if (isStopped) break;
           await new Promise(resolve => setTimeout(resolve, 100));
@@ -82,8 +103,8 @@ export async function startCacheWarming(p2pClient, manifest, currentLevel, onPro
         if (isStopped) break;
 
         // 2. Calls p2pClient.getAsset(cid)
-        // This may fallback to the Permanent Seed node and retry several times internally
-        const arrayBuffer = await p2pClient.getAsset(cid);
+        const result = await p2pClient.getAsset(cid);
+        const arrayBuffer = result.data;
 
         // 3. Verifies with verifyAsset()
         const isValid = await verifyAsset(arrayBuffer, cid);
@@ -95,13 +116,13 @@ export async function startCacheWarming(p2pClient, manifest, currentLevel, onPro
         // 4. Saves to IndexedDB with saveAsset()
         await saveAsset(cid, path, level, arrayBuffer);
 
-        // 5. Calls onProgress callback
+        // 5. Update counts and call onProgress callback
         totalDone++;
+        donePerLevel[level]++;
         if (onProgress) {
           onProgress({ cid, path, level, totalDone, totalNeeded });
         }
       } catch (error) {
-        // Ensure the background loop continues even if one asset fails
         console.warn(`[Cache Warmer] Error warming asset ${asset.cid}:`, error.message);
       }
     }

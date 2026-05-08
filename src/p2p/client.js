@@ -65,7 +65,7 @@ export class P2PClient {
    * 3. On fail, sleeps 1s and retries up to 2 additional times (3 total cycles) before throwing.
    * 
    * @param {string} cid - Asset content identifier.
-   * @returns {Promise<ArrayBuffer>} Complete asset binary buffer.
+   * @returns {Promise<{data: ArrayBuffer, peer: import('@libp2p/interface-peer-id').PeerId}>} Asset data and the peer it was retrieved from.
    * @throws {Error} If retrieval fails across all peers, seed fallback, and retries.
    */
   async getAsset(cid) {
@@ -78,26 +78,27 @@ export class P2PClient {
 
       try {
         // Step A: Attempt to fetch from active peers in the swarm
-        const swarmData = await this.swarmManager.findAndFetch(cid, async (peerId, targetCid) => {
-          return await requestAssetFromPeer(this.node, peerId, targetCid);
+        // SwarmManager.findAndFetch should be updated to return { data, peer }
+        const swarmResult = await this.swarmManager.findAndFetch(cid, async (peerId, targetCid) => {
+          const data = await requestAssetFromPeer(this.node, peerId, targetCid);
+          return data ? { data, peer: peerId } : null;
         });
 
-        if (swarmData !== null) {
+        if (swarmResult !== null) {
           console.log(`[P2P Client] Successfully downloaded CID ${cid} from active swarm on cycle ${attempt}.`);
-          return swarmData;
+          return swarmResult;
         }
 
         console.warn(`[P2P Client] CID ${cid} not found in active swarm on cycle ${attempt}. Falling back to Permanent Seed...`);
 
         // Step B: Connect and fetch from the Permanent Seed Node
-        // connectToSeed manages dialing and reconnects automatically if connection is lost
         const seedConn = await connectToSeed(this.node);
         const seedPeerId = seedConn.remotePeer;
 
         const seedData = await requestAssetFromPeer(this.node, seedPeerId, cid);
         if (seedData !== null) {
           console.log(`[P2P Client] Successfully downloaded CID ${cid} from Permanent Seed on cycle ${attempt}.`);
-          return seedData;
+          return { data: seedData, peer: seedPeerId };
         }
 
         console.warn(`[P2P Client] Permanent Seed reported NOT_FOUND for CID ${cid} on cycle ${attempt}.`);

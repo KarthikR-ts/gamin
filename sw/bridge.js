@@ -1,5 +1,6 @@
 import { saveAsset } from '../src/data/db.js';
 import { verifyAsset } from '../src/data/verify.js';
+import { SEED_MULTIADDR } from '../src/p2p/discovery.js';
 
 /**
  * Message bridge between the Service Worker and the P2P Client.
@@ -9,13 +10,24 @@ import { verifyAsset } from '../src/data/verify.js';
 // Map of pending CID requests to their associated MessagePorts
 const pendingRequests = new Map();
 
+// Extract seed peer ID for identification in HUD
+const SEED_PEER_ID = SEED_MULTIADDR.split('/p2p/')[1];
+
 /**
  * Initializes the message bridge.
  * @param {Object} p2pClient - The P2P client instance for asset retrieval.
+ * @param {Object} hud - The HUD controller instance for UI updates.
  */
-export async function initBridge(p2pClient) {
+export async function initBridge(p2pClient, hud) {
   navigator.serviceWorker.addEventListener('message', async (event) => {
-    const { type, cid } = event.data;
+    const { type, cid, size } = event.data;
+    
+    // Handle cache hits from Service Worker
+    if (type === 'CACHE_HIT' && hud) {
+      hud.showCacheHit(size);
+      return;
+    }
+
     // The port might be explicitly in the data or in the ports array
     const port = event.data.port || event.ports[0];
 
@@ -30,7 +42,7 @@ export async function initBridge(p2pClient) {
       pendingRequests.set(cid, ports);
 
       try {
-        const arrayBuffer = await fetchAndVerify(p2pClient, cid);
+        const arrayBuffer = await fetchAndVerify(p2pClient, hud, cid);
         
         // Final cleanup and response dispatch
         if (pendingRequests.has(cid)) {
@@ -46,8 +58,6 @@ export async function initBridge(p2pClient) {
       } catch (error) {
         pendingRequests.delete(cid);
         console.error(`[Bridge] Failed to resolve asset ${cid}:`, error);
-        // Fallback or throw as requested. In this context, throwing logs the error.
-        // The SW will naturally time out and hit the network.
       }
     }
   });
@@ -56,17 +66,24 @@ export async function initBridge(p2pClient) {
 /**
  * Handles the fetch, verification, and retry logic for a CID.
  */
-async function fetchAndVerify(p2pClient, cid, isRetry = false) {
+async function fetchAndVerify(p2pClient, hud, cid, isRetry = false) {
   try {
-    // 1. Calls p2pClient.getAsset(cid) to get the ArrayBuffer
-    const response = await p2pClient.getAsset(cid);
-    
-    // The response is expected to contain the data and the peer info for blacklisting
-    const arrayBuffer = response instanceof ArrayBuffer ? response : response?.data;
-    const peer = response?.peer;
+    // 1. Calls p2pClient.getAsset(cid) - now returns { data, peer }
+    const result = await p2pClient.getAsset(cid);
+    const { data: arrayBuffer, peer } = result;
 
     if (!arrayBuffer) {
       throw new Error(`P2P client returned no data for ${cid}`);
+    }
+
+    // Update HUD
+    if (hud && peer) {
+      const peerIdStr = peer.toString();
+      if (peerIdStr === SEED_PEER_ID) {
+        hud.showSeedFallback();
+      } else {
+        hud.showTransfer(peerIdStr);
+      }
     }
 
     // 2. Calls verifyAsset(arrayBuffer, cid) from src/data/verify.js
@@ -74,7 +91,6 @@ async function fetchAndVerify(p2pClient, cid, isRetry = false) {
 
     if (isValid) {
       // 3. If verification passes: saves to IndexedDB via saveAsset()
-      // We use placeholders for path and level as they are not provided by the SW request
       await saveAsset(cid, `p2p_asset_${cid}`, 0, arrayBuffer);
       
       // ...then returns the buffer to be posted back
@@ -84,14 +100,14 @@ async function fetchAndVerify(p2pClient, cid, isRetry = false) {
       console.warn(`[Bridge] SECURITY WARNING: Verification failed for CID ${cid}`);
       
       // ...calls p2pClient blacklistPeer (the peer that returned it)
-      if (peer && p2pClient.blacklistPeer) {
-        p2pClient.blacklistPeer(peer);
+      if (peer && p2pClient.swarmManager?.blacklistPeer) {
+        p2pClient.swarmManager.blacklistPeer(peer);
       }
 
       if (!isRetry) {
         // ...retries getAsset once more
         console.log(`[Bridge] Retrying getAsset for ${cid}...`);
-        return await fetchAndVerify(p2pClient, cid, true);
+        return await fetchAndVerify(p2pClient, hud, cid, true);
       } else {
         // ...then responds with the fallback or throws
         throw new Error(`Verification failed after retry for CID ${cid}`);
@@ -100,7 +116,7 @@ async function fetchAndVerify(p2pClient, cid, isRetry = false) {
   } catch (error) {
     if (!isRetry) {
       console.warn(`[Bridge] Error fetching ${cid}, retrying...`, error);
-      return await fetchAndVerify(p2pClient, cid, true);
+      return await fetchAndVerify(p2pClient, hud, cid, true);
     }
     throw error;
   }

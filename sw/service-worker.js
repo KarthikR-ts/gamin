@@ -103,6 +103,8 @@ async function handleAssetFetch(event) {
       const arrayBuffer = await getAsset(cid);
       if (arrayBuffer) {
         console.log(`[SW] Serving ${cid} from IndexedDB cache`);
+        // Notify bridge/HUD of cache hit for efficiency tracking
+        notifyCacheHit(cid, arrayBuffer.byteLength);
         return new Response(arrayBuffer, {
           headers: { 'Content-Type': getMimeType(url) }
         });
@@ -123,6 +125,16 @@ async function handleAssetFetch(event) {
 
   // Fallback to normal network fetch
   return fetch(event.request);
+}
+
+/**
+ * Notifies all window clients about a cache hit.
+ */
+async function notifyCacheHit(cid, size) {
+  const clients = await self.clients.matchAll({ type: 'window' });
+  for (const client of clients) {
+    client.postMessage({ type: 'CACHE_HIT', cid, size });
+  }
 }
 
 /**
