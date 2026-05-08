@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2026-05-08T23:28:15Z",
+  "assets": {
+    "levels/level1/map.gltf": {
+      "cid": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1048576,
+      "level": 1
+    },
+    "textures/environment/skybox.jpg": {
+      "cid": "64ec88ca00b268e5ba1a35678a1b5316d212f4f366b2477232534a8aeca37f3c",
+      "size": 524288,
+      "level": 2
+    },
+    "sfx/ui/click.mp3": {
+      "cid": "8d94139e79c09442383925014a07bbb105481bbaae1442229fd90c0164293910",
+      "size": 12288,
+      "level": 3
+    }
+  }
+}
